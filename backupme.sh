@@ -1,52 +1,52 @@
 #!/bin/bash
-#
 # Backup Me
-# by Eray 'Ray' Sönmez
 # www.Ray-works.de
 
-# Allgemeine Angaben
+# MySQL Konfiguration
 MYSQL_USER=
 MYSQL_PASS=
-FTP_SERVER=
-FTP_USER=
-FTP_PASS=
 
-# Festlegung des Datums - Format: 19700101
-DATE=`date +"%Y%m%d"`
+# Backup-Verzeichnis definieren
+DESTINATION="/backup";
+
+# Zu sichernde Verzeichnisse
+SOURCE="/etc /var/log /var/www /var/vmail /mysqldump";
+
+# Ausnahmen
+EXCLUDE="/var/www/testfolder";
+
+# Archive Name
+DATE=`date +"%Y-%m-%d"`;
+ARCHIVE="Backup-$DATE.tgz"
+
+# Anzahl der maximalen Backups
+MAX=5;
 
 # Backup-Verzeichnis anlegen 
-mkdir /tmp/backup
-mkdir /tmp/backup/mysql
+if [ ! -d "$DESTINATION" ]; then
+  mkdir $DESTINATION
+fi
 
-# Verzeichnisse die ins Backup integriert werden sollen
-cp -r /etc /tmp/backup
-cp -r /var/log /tmp/backup
-#cp -r /var/www /tmp/backup
+if [ ! -d "/mysqldump" ]; then
+  mkdir /mysqldump
+fi
 
-cd /tmp/backup/mysql
+while [ `ls $DESTINATION -1 | wc -l` -gt $(($MAX-1)) ]; do
+    OLDEST=`ls $DESTINATION | head -1`
+    echo "Entferne altes Backup: $OLDEST";
+    rm -rf $DESTINATION/$OLDEST
+done
 
 # Sicherung der Datenbanken
+cd /mysqldump
 for x in $(mysql -u$MYSQL_USER -p$MYSQL_PASS -Bse 'show databases'); do
 mysqldump -u$MYSQL_USER -p$MYSQL_PASS --single-transaction $x > ${x}-$DATE.sql
 done
 
 cd ../
 
-# Alle Dateien mit tar.bz2 komprimieren
-tar cjfp etc-$DATE.tar.bz2 etc
-tar cjfp logs-$DATE.tar.bz2 log
-tar cjfp mysql-$DATE.tar.bz2 mysql
-#tar cjfp web-$DATE.tar.bz2 www
+# Archivieren
+tar zcfP $DESTINATION/$ARCHIVE $SOURCE --exclude=$EXCLUDE
 
-# Alle komprimierten Dateien per FTP auf den Backup-Server laden
-ftp -ni << END_UPLOAD
-  open $FTP_SERVER
-  user $FTP_USER $FTP_PASS
-  bin
-  cd html
-  mput *.tar.bz2
-  quit
-END_UPLOAD
-
-# Anschliessend alle auf den Server angelegten Dateien wieder loeschen
-rm -rf /tmp/backup
+# Datenbank Backups löschen, da sie schon im Archiv sind
+rm -rf /mysqldump

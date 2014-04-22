@@ -1,52 +1,78 @@
 #!/bin/bash
-# Backup Me
-# www.Ray-works.de
 
-# MySQL Konfiguration
-MYSQL_USER=
+# Backup Script
+# by Ray-works.de
+# Update: 29.10.2013
+
+# Date
+DATE=`date +"%Y-%m-%d"`;
+
+echo "--- Backup Started ---";
+echo "--- $DATE ---";
+
+# MySQL & FTP Konfiguration
+MYSQL_USER=root
 MYSQL_PASS=
 
+# Storage Konfiguration
+NFSIP=""
+NFSVOL=""
+MOUNTPOINT="/mnt/storage"
+
+# Mountpoint "storage" anlegen
+if [ ! -d $MOUNTPOINT ]; then
+    mkdir $MOUNTPOINT
+	echo "Status: Mountpoint created.";
+fi
+
+# Solange storage nicht gemountet ist, versuche alle 10 Sekunden es zu mounten
+until mount | grep "$MOUNTPOINT" &> /dev/null; do
+   mount -t nfs $NFSIP:$NFSVOL $MOUNTPOINT &> /dev/null
+   sleep 10
+done
+
+echo "Status: Storage mounted.";
+
 # Backup-Verzeichnis definieren
-DESTINATION="/backup";
+DESTINATION="$MOUNTPOINT";
+
+# MySQL Dump Verzeichnis anlegen
+if [ ! -d "/mysqldump" ]; then
+  mkdir /mysqldump
+  echo "Status: MySQL-Dump directory created.";
+fi
 
 # Zu sichernde Verzeichnisse
-SOURCE="/etc /var/log /var/www /var/vmail /mysqldump";
-
-# Ausnahmen
-EXCLUDE="/var/www/testfolder";
+SOURCE="/root /etc /var/log /var/www /var/vmail /var/tools /mysqldump /home/ray";
 
 # Archive Name
-DATE=`date +"%Y-%m-%d"`;
 ARCHIVE="Backup-$DATE.tgz"
 
 # Anzahl der maximalen Backups
-MAX=5;
-
-# Backup-Verzeichnis anlegen 
-if [ ! -d "$DESTINATION" ]; then
-  mkdir $DESTINATION
-fi
-
-if [ ! -d "/mysqldump" ]; then
-  mkdir /mysqldump
-fi
+MAX=10;
 
 while [ `ls $DESTINATION -1 | wc -l` -gt $(($MAX-1)) ]; do
     OLDEST=`ls $DESTINATION | head -1`
-    echo "Entferne altes Backup: $OLDEST";
+    echo "Status: Removing old backup -> $OLDEST";
     rm -rf $DESTINATION/$OLDEST
 done
 
 # Sicherung der Datenbanken
 cd /mysqldump
 for x in $(mysql -u$MYSQL_USER -p$MYSQL_PASS -Bse 'show databases'); do
-mysqldump -u$MYSQL_USER -p$MYSQL_PASS --single-transaction $x > ${x}-$DATE.sql
+  mysqldump -u$MYSQL_USER -p$MYSQL_PASS --single-transaction $x > ${x}-$DATE.sql
+  echo "MySQL-Dump: ${x}-$DATE.sql created.";
 done
 
 cd ../
 
 # Archivieren
-tar zcfP $DESTINATION/$ARCHIVE $SOURCE --exclude=$EXCLUDE
+tar zcfP $DESTINATION/$ARCHIVE $SOURCE
 
-# Datenbank Backups löschen, da sie schon im Archiv sind
+# Backups löschen
 rm -rf /mysqldump
+
+umount $MOUNTPOINT
+echo "Status: Storage unmounted.";
+echo "--- Backup Completed ---";
+echo "--- $DATE ---";
